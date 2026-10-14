@@ -27,8 +27,10 @@ pub enum MergeError {
     Io(#[from] std::io::Error),
 }
 
+/// Recognises both `resumer-cli` and entries written by an older GUI build that pointed at `Resumer.exe`.
 fn is_ours(command: &str) -> bool {
-    command.contains(MARKER)
+    let c = command.to_ascii_lowercase();
+    c.contains(MARKER) || c.contains("resumer.exe hook ")
 }
 
 /// Shell-agnostic command line (Git Bash and PowerShell): forward slashes, quotes only if the path has spaces.
@@ -421,6 +423,22 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&p).unwrap(), "{\"a\": 1}");
         let fresh = dir.path().join("new").join("settings.json");
         assert!(write_with_backup(&fresh, "{}\n", 1).unwrap().backup.is_none());
+    }
+
+    #[test]
+    fn old_gui_entries_are_recognised_as_ours() {
+        let old = json!({"statusLine": {"type": "command", "command": "E:/x/Resumer.exe hook statusline"},
+            "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "E:/x/Resumer.exe hook activity"}]}]}});
+        let r = install(&old, EXE).unwrap();
+        // 5 hook events + statusLine, each exactly once, all rewritten to resumer-cli.
+        assert_eq!(
+            count_ours(&r.settings),
+            HOOKS.len() + 1,
+            "replaced in place, no duplicates"
+        );
+        assert!(!r.settings.to_string().contains("Resumer.exe"));
+        assert!(r.chained.is_none());
+        assert_eq!(uninstall(&old, None).unwrap(), json!({}));
     }
 
     #[test]
