@@ -152,8 +152,8 @@ pub const TABLE: &[(&str, &str, &str)] = &[
     ("skip.excluded", "папка в исключениях", "folder is excluded"),
     (
         "about.privacy",
-        "Resumer читает только данные хуков и статус-строки. Содержимое сессий не читается и не записывается.",
-        "Resumer reads only hook and status-line data. Session contents are never read or stored.",
+        "Resumer читает данные хуков и статус-строки и раз в час (можно отключить) сверяет лимиты с API Anthropic. Содержимое сессий не читается и не записывается.",
+        "Resumer reads hook and status-line data and, once an hour (can be turned off), checks the limits with the Anthropic API. Session contents are never read or stored.",
     ),
     ("demo.badge", "ДЕМО — данные выдуманы", "DEMO — made-up data"),
     ("limits.left", "осталось", "left"),
@@ -190,8 +190,23 @@ pub const TABLE: &[(&str, &str, &str)] = &[
         "Лимиты обновляются раз в 5 минут (пока сессия открыта)",
         "Limits refresh every 5 minutes (while a session is open)",
     ),
+    (
+        "set.api_limits",
+        "Раз в час сверять лимиты с API Anthropic",
+        "Cross-check the limits with the Anthropic API once an hour",
+    ),
+    (
+        "set.api_limits.hint",
+        "Использует вход Claude Code (токен из ~/.claude/.credentials.json); токен уходит только на api.anthropic.com.",
+        "Uses the Claude Code login (token from ~/.claude/.credentials.json); the token is sent only to api.anthropic.com.",
+    ),
     ("limits.updated", "обновлено", "updated"),
     ("limits.ago", "назад", "ago"),
+    (
+        "limits.stale",
+        "Цифры устарели: их присылают только сессии Claude Code, запущенные после установки хуков. Перезапустите сессии — они будут обновлять лимиты раз в 5 минут.",
+        "These numbers are stale: only Claude Code sessions started after the hooks were installed report them. Restart your sessions — they will refresh the limits every 5 minutes.",
+    ),
     (
         "confirm.wake",
         "Ввести сообщение в окон: {n}?",

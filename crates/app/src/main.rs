@@ -3,12 +3,13 @@
 
 mod diag;
 mod theme;
+mod usage;
 
 use eframe::egui::{self, RichText};
 use resumer_core::config::{Config, Lang, TargetMode};
 use resumer_core::engine::{Injector, execute_force, prepare_force};
 use resumer_core::i18n::{duration, fmt, status_label, t};
-use resumer_core::limits::{self, AccountLimits};
+use resumer_core::limits::{self, AccountLimits, ApiSnapshot};
 use resumer_core::proc::ProcessInfo;
 use resumer_core::scheduler::{self, SchedulerHandle};
 use resumer_core::settings_merge as sm;
@@ -22,6 +23,8 @@ use std::time::Duration;
 
 /// How often the list of live Claude Code processes is rescanned (in the background).
 const SCAN_EVERY: Duration = Duration::from_secs(5);
+/// How often the limits are cross-checked against the usage endpoint.
+const USAGE_EVERY: Duration = Duration::from_secs(3600);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
@@ -50,6 +53,7 @@ struct App {
     store: StateStore,
     sessions: Vec<SessionState>,
     procs: Arc<Mutex<Vec<ProcessInfo>>>,
+    api: Arc<Mutex<Option<ApiSnapshot>>>,
     rows: Vec<Row>,
     limits: AccountLimits,
     notice: String,
@@ -86,6 +90,29 @@ impl App {
                 })
                 .ok();
         }
+        let api = Arc::new(Mutex::new(None));
+        {
+            let (api, ctx) = (api.clone(), cc.egui_ctx.clone());
+            std::thread::Builder::new()
+                .name("resumer-usage".into())
+                .spawn(move || {
+                    loop {
+                        if Config::load().check_api_limits {
+                            match usage::fetch() {
+                                Ok(snap) => {
+                                    if let Ok(mut a) = api.lock() {
+                                        *a = Some(snap);
+                                    }
+                                    ctx.request_repaint();
+                                }
+                                Err(e) => logger::log(&format!("usage check skipped: {e}")),
+                            }
+                        }
+                        std::thread::sleep(USAGE_EVERY);
+                    }
+                })
+                .ok();
+        }
         let ctx = cc.egui_ctx.clone();
         let scheduler = scheduler::spawn(Injector::InProcess, move |_| ctx.request_repaint());
         App {
@@ -95,6 +122,7 @@ impl App {
             store: StateStore::default_store(),
             sessions: Vec::new(),
             procs,
+            api,
             rows: Vec::new(),
             limits: AccountLimits::default(),
             notice: String::new(),
@@ -116,7 +144,8 @@ impl App {
         let now = now_epoch();
         self.store.prune_dead(proc::is_alive);
         self.sessions = self.store.list();
-        self.limits = limits::account_limits(&self.sessions, now);
+        let api = self.api.lock().ok().and_then(|a| *a);
+        self.limits = limits::account_limits(&self.sessions, api.as_ref(), now);
         self.rows = self.build_rows(now);
         self.last_refresh = now;
     }
@@ -304,10 +333,10 @@ impl App {
                     };
                     ui.add(
                         egui::ProgressBar::new((left / 100.0) as f32)
-                            .desired_width(220.0)
-                            .fill(color)
-                            .text(RichText::new(format!("{} {:.0}%", t(lang, "limits.left"), left)).color(theme::BASE)),
+                            .desired_width(180.0)
+                            .fill(color),
                     );
+                    ui.colored_label(color, format!("{} {:.0}%", t(lang, "limits.left"), left));
                     ui.label(format!(
                         "{} {}",
                         t(lang, "limits.resets_in"),
@@ -329,17 +358,20 @@ impl App {
         let (five, week) = (self.limits.five_hour, self.limits.seven_day);
         self.limit_bar(ui, t(lang, "col.five"), five, now);
         self.limit_bar(ui, t(lang, "col.week"), week, now);
-        if let Some(upd) = self.sessions.iter().map(|s| s.updated_at).max() {
-            ui.label(
-                RichText::new(format!(
-                    "{} {} {}",
-                    t(lang, "limits.updated"),
-                    duration(lang, now - upd),
-                    t(lang, "limits.ago")
-                ))
-                .small()
-                .color(theme::SUBTEXT),
+        let api_at = self.api.lock().ok().and_then(|a| *a).map(|a| a.fetched_at);
+        if let Some(upd) = self.sessions.iter().map(|s| s.updated_at).chain(api_at).max() {
+            let stale = now - upd > 600;
+            let age = format!(
+                "{} {} {}",
+                t(lang, "limits.updated"),
+                duration(lang, now - upd),
+                t(lang, "limits.ago")
             );
+            if stale {
+                ui.colored_label(theme::YELLOW, format!("⚠ {age}. {}", t(lang, "limits.stale")));
+            } else {
+                ui.label(RichText::new(age).small().color(theme::SUBTEXT));
+            }
         }
         ui.add_space(6.0);
 
@@ -448,6 +480,14 @@ impl App {
                     .color(theme::SUBTEXT),
             );
             ui.label(RichText::new(t(lang, "set.refresh")).small().color(theme::SUBTEXT));
+            changed |= ui
+                .checkbox(&mut self.cfg.check_api_limits, t(lang, "set.api_limits"))
+                .changed();
+            ui.label(
+                RichText::new(t(lang, "set.api_limits.hint"))
+                    .small()
+                    .color(theme::SUBTEXT),
+            );
             ui.add_space(6.0);
             changed |= ui.checkbox(&mut self.cfg.paused, t(lang, "set.paused")).changed();
             changed |= ui.checkbox(&mut self.cfg.dry_run, t(lang, "set.dry_run")).changed();

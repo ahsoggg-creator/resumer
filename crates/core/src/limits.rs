@@ -11,18 +11,34 @@ pub struct AccountLimits {
     pub seven_day: Option<Window>,
 }
 
-fn freshest(states: &[SessionState], now: i64, pick: impl Fn(&SessionState) -> Option<Window>) -> Option<Window> {
+/// A reading from Anthropic's usage endpoint (the hourly cross-check).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ApiSnapshot {
+    pub fetched_at: i64,
+    pub five_hour: Option<Window>,
+    pub seven_day: Option<Window>,
+}
+
+fn freshest(
+    states: &[SessionState],
+    api: Option<(i64, Option<Window>)>,
+    now: i64,
+    pick: impl Fn(&SessionState) -> Option<Window>,
+) -> Option<Window> {
     states
         .iter()
-        .filter_map(|s| pick(s).filter(|w| w.resets_at > now).map(|w| (s.updated_at, w)))
+        .filter_map(|s| pick(s).map(|w| (s.updated_at, w)))
+        .chain(api.and_then(|(at, w)| w.map(|w| (at, w))))
+        .filter(|(_, w)| w.resets_at > now)
         .max_by_key(|(updated, _)| *updated)
         .map(|(_, w)| w)
 }
 
-pub fn account_limits(states: &[SessionState], now: i64) -> AccountLimits {
+/// The newest reading wins, whether it came from a session's status line or from the usage endpoint.
+pub fn account_limits(states: &[SessionState], api: Option<&ApiSnapshot>, now: i64) -> AccountLimits {
     AccountLimits {
-        five_hour: freshest(states, now, |s| s.five_hour),
-        seven_day: freshest(states, now, |s| s.seven_day),
+        five_hour: freshest(states, api.map(|a| (a.fetched_at, a.five_hour)), now, |s| s.five_hour),
+        seven_day: freshest(states, api.map(|a| (a.fetched_at, a.seven_day)), now, |s| s.seven_day),
     }
 }
 
@@ -102,7 +118,7 @@ mod tests {
     fn takes_the_freshest_session_per_window() {
         let a = st("a", NOW - 500, w(10.0, 3000), w(5.0, 90_000));
         let b = st("b", NOW - 10, w(40.0, 3000), None);
-        let l = account_limits(&[a, b], NOW);
+        let l = account_limits(&[a, b], None, NOW);
         assert_eq!(l.five_hour.unwrap().used_percentage, 40.0);
         assert_eq!(
             l.seven_day.unwrap().used_percentage,
@@ -114,9 +130,32 @@ mod tests {
     #[test]
     fn expired_windows_are_dropped() {
         let a = st("a", NOW - 10, w(99.0, -5), w(5.0, 100));
-        let l = account_limits(&[a], NOW);
+        let l = account_limits(&[a], None, NOW);
         assert!(l.five_hour.is_none());
         assert!(l.seven_day.is_some());
+    }
+
+    #[test]
+    fn newer_api_reading_beats_stale_session_data() {
+        let a = st("a", NOW - 3000, w(18.0, 3000), w(3.0, 90_000));
+        let api = ApiSnapshot {
+            fetched_at: NOW - 5,
+            five_hour: w(95.0, 3000),
+            seven_day: None,
+        };
+        let l = account_limits(std::slice::from_ref(&a), Some(&api), NOW);
+        assert_eq!(l.five_hour.unwrap().used_percentage, 95.0);
+        assert_eq!(
+            l.seven_day.unwrap().used_percentage,
+            3.0,
+            "api had no week: keep the session value"
+        );
+        let old_api = ApiSnapshot {
+            fetched_at: NOW - 9000,
+            ..api
+        };
+        let l = account_limits(&[a], Some(&old_api), NOW);
+        assert_eq!(l.five_hour.unwrap().used_percentage, 18.0, "session reading is newer");
     }
 
     #[test]

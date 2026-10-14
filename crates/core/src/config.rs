@@ -37,6 +37,8 @@ pub struct Config {
     pub auto_send: bool,
     /// Seconds between status-line refreshes of a live session (the source of the limit numbers).
     pub limits_refresh_secs: u64,
+    /// Hourly cross-check of the limits against Anthropic's usage endpoint.
+    pub check_api_limits: bool,
     /// If not empty, auto-wake only touches sessions whose cwd is under one of these folders.
     pub whitelist: Vec<String>,
     /// Never touched by anything, including the manual "wake all".
@@ -68,6 +70,7 @@ impl Default for Config {
             target_mode: TargetMode::Blocked,
             auto_send: true,
             limits_refresh_secs: 300,
+            check_api_limits: true,
             whitelist: Vec::new(),
             excluded: Vec::new(),
             include_waiting: false,
