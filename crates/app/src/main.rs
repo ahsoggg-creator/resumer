@@ -51,9 +51,16 @@ impl App {
     }
 
     fn install_hooks(&mut self) {
+        // Hooks must call the console CLI: the GUI exe has no `hook` mode and would open a window per event.
         let exe = std::env::current_exe()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default();
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.join("resumer-cli.exe")))
+            .filter(|p| p.is_file());
+        let Some(exe) = exe else {
+            self.notice = "resumer-cli.exe not found next to Resumer.exe".into();
+            return;
+        };
+        let exe = exe.to_string_lossy().to_string();
         let path = paths::claude_settings_file();
         let old_text = std::fs::read_to_string(&path).unwrap_or_default();
         let result = sm::parse(&old_text)
