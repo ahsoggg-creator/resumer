@@ -1,0 +1,7 @@
+[package]
+name = "resumer-app"
+version.workspace = true
+edition.workspace = true
+[[bin]]
+name = "Resumer"
+path = "src/main.rs"
