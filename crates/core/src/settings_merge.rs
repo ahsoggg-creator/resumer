@@ -134,10 +134,15 @@ pub fn install(settings: &Value, exe: &str) -> Result<InstallResult, MergeError>
                 }
                 None => return Err(MergeError::BadShape("statusLine".into())),
             }
+            // Live sessions re-run the status line on a timer, which keeps the limit numbers fresh.
+            sl.entry("refreshInterval").or_insert(json!(REFRESH_SECS));
         }
         Some(_) => return Err(MergeError::BadShape("statusLine".into())),
         None => {
-            root.insert("statusLine".into(), json!({"type": "command", "command": ours}));
+            root.insert(
+                "statusLine".into(),
+                json!({"type": "command", "command": ours, "refreshInterval": REFRESH_SECS}),
+            );
         }
     }
     Ok(InstallResult {
@@ -145,6 +150,9 @@ pub fn install(settings: &Value, exe: &str) -> Result<InstallResult, MergeError>
         chained,
     })
 }
+
+/// Status-line refresh period written by the installer (5 minutes).
+pub const REFRESH_SECS: u64 = 300;
 
 /// Removes Resumer's entries; restores the chained statusLine command (or drops the statusLine if there was none).
 pub fn uninstall(settings: &Value, chained: Option<&str>) -> Result<Value, MergeError> {
@@ -172,10 +180,14 @@ pub fn uninstall(settings: &Value, chained: Option<&str>) -> Result<Value, Merge
     if ours {
         match chained {
             Some(c) => {
-                root.get_mut("statusLine")
+                let sl = root
+                    .get_mut("statusLine")
                     .and_then(Value::as_object_mut)
-                    .expect("object")
-                    .insert("command".into(), json!(c));
+                    .expect("object");
+                sl.insert("command".into(), json!(c));
+                if sl.get("refreshInterval") == Some(&json!(REFRESH_SECS)) {
+                    sl.remove("refreshInterval");
+                }
             }
             None => {
                 root.remove("statusLine");

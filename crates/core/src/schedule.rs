@@ -94,7 +94,7 @@ pub fn verify_reset(st: &SessionState, reset: i64, now: i64) -> Verdict {
 
 pub fn plan(states: &[SessionState], cfg: &Config, now: i64) -> Schedule {
     let mut out = Schedule::default();
-    if cfg.paused {
+    if cfg.paused || !cfg.auto_send {
         return out;
     }
     let margin = cfg.margin_secs as i64;
@@ -320,15 +320,27 @@ mod tests {
         s.blocked_until = NOW - 100;
         let mut c = cfg();
         c.whitelist.clear();
-        assert!(
-            plan(std::slice::from_ref(&s), &c, NOW).due.is_empty(),
-            "empty whitelist = nobody is touched"
+        assert_eq!(
+            plan(std::slice::from_ref(&s), &c, NOW).due.len(),
+            1,
+            "empty whitelist = every folder"
         );
-        c.whitelist.push("C:\\proj".into());
+        c.whitelist.push("C:\\other".into());
+        assert!(plan(std::slice::from_ref(&s), &c, NOW).due.is_empty());
+        c.whitelist = vec!["C:\\proj".into()];
         c.excluded.push("C:\\proj\\a".into());
         assert!(plan(std::slice::from_ref(&s), &c, NOW).due.is_empty());
         c.excluded.clear();
         assert_eq!(plan(&[s], &c, NOW).due.len(), 1);
+    }
+
+    #[test]
+    fn auto_send_off_plans_nothing() {
+        let mut s = sess("a", Status::RateLimited, w(100.0, NOW - 100), None);
+        s.blocked_until = NOW - 100;
+        let mut c = cfg();
+        c.auto_send = false;
+        assert_eq!(plan(&[s], &c, NOW), Schedule::default());
     }
 
     #[test]

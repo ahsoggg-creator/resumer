@@ -33,7 +33,11 @@ pub struct Config {
     pub gap_max_secs: u64,
     pub enter_delay_ms: u64,
     pub target_mode: TargetMode,
-    /// Auto-wake only touches sessions whose cwd is under one of these folders. Empty = none.
+    /// Automatic wake-up after a limit reset. Off = only the manual "wake all" button types anything.
+    pub auto_send: bool,
+    /// Seconds between status-line refreshes of a live session (the source of the limit numbers).
+    pub limits_refresh_secs: u64,
+    /// If not empty, auto-wake only touches sessions whose cwd is under one of these folders.
     pub whitelist: Vec<String>,
     /// Never touched by anything, including the manual "wake all".
     pub excluded: Vec<String>,
@@ -62,6 +66,8 @@ impl Default for Config {
             gap_max_secs: 30,
             enter_delay_ms: 80,
             target_mode: TargetMode::Blocked,
+            auto_send: true,
+            limits_refresh_secs: 300,
             whitelist: Vec::new(),
             excluded: Vec::new(),
             include_waiting: false,
@@ -120,7 +126,7 @@ impl Config {
     }
 
     pub fn is_whitelisted(&self, cwd: &str) -> bool {
-        self.whitelist.iter().any(|f| path_within(cwd, f))
+        self.whitelist.is_empty() || self.whitelist.iter().any(|f| path_within(cwd, f))
     }
 }
 
@@ -161,9 +167,14 @@ mod tests {
         assert!(!path_within("C:\\Workshop", "C:\\Work"));
         assert!(!path_within("C:\\x", ""));
         let mut c = Config::default();
-        assert!(!c.is_whitelisted("C:\\x"));
+        assert!(c.is_whitelisted("C:\\x"), "empty whitelist = every folder");
         c.whitelist.push("C:\\x".into());
         c.excluded.push("C:\\x\\secret".into());
-        assert!(c.is_whitelisted("C:\\x\\a") && c.is_excluded("C:\\x\\secret\\b") && !c.is_excluded("C:\\x\\a"));
+        assert!(
+            c.is_whitelisted("C:\\x\\a")
+                && !c.is_whitelisted("C:\\y")
+                && c.is_excluded("C:\\x\\secret\\b")
+                && !c.is_excluded("C:\\x\\a")
+        );
     }
 }

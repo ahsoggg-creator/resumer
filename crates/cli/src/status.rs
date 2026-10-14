@@ -57,10 +57,8 @@ pub fn run() -> i32 {
             if cfg.paused { " (paused)" } else { "" }
         ),
     }
-    if cfg.whitelist.is_empty() {
-        println!(
-            "Note: the automatic wake-up whitelist is empty, so nothing is woken automatically (manual `nudge --all` still works)."
-        );
+    if !cfg.auto_send {
+        println!("Note: automatic wake-up is switched off (manual `nudge --all` still works).");
     }
     0
 }
