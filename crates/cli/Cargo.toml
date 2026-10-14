@@ -1,0 +1,15 @@
+[package]
+name = "resumer-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "resumer-cli"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
+resumer-core = { version = "0.1.0", path = "../core" }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
