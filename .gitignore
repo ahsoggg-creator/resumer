@@ -1,0 +1,6 @@
+target/
+dist/
+# private key backups must never be committed (a public certs\*.cer is fine)
+*.pfx
+*.p12
+*.snk
